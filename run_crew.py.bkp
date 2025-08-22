@@ -1,0 +1,121 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+from crewai import Agent, Crew, Process, Task
+from crewai_tools import SerperDevTool
+# --- NEW: Import the Groq LLM class ---
+from langchain_groq import ChatGroq
+
+# --- LLM Configuration ---
+# This is the most reliable free-tier LLM that does not require a credit card.
+#llm = ChatGroq(
+#    api_key=os.getenv("GROQ_API_KEY"),
+#    model_name="groq/llama3-8b-8192"  # A powerful and fast open-source model
+#)
+
+class LiteLLMAgent(Agent):
+    def __init__(self, role, goal, backstory):
+        super().__init__(role=role, goal=goal, backstory=backstory, allow_delegation=False)
+
+    def execute_task(self, task, context=None, tools=None):
+      try:
+          response = litellm.completion(
+              model="gemini/gemini-2.5-pro" ,# Correct model format for LiteLLM
+              messages=[{"role": "user", "content": task.description}],
+          )
+          return response.choices[0].message.content
+      except Exception as e:
+          return f"Error: {e}"
+
+llm = LiteLLMAgent(role="Researcher", goal="Say hi", backstory="A test agent.")
+
+# --- Tool Configuration ---
+# The researcher agent needs a tool to search the web.
+search_tool = SerperDevTool(api_key=os.getenv("SERPER_API_KEY"))
+
+
+# --- Agent Definitions (No changes here) ---
+strategist = Agent(
+    role="C-Suite Content Strategist",
+    goal="Reframe a technical topic into a compelling business narrative that captures a CXO's attention by focusing on business value (Profit, Cost, Risk).",
+    backstory="You are a seasoned business consultant...",
+    llm=llm, verbose=True, allow_delegation=False
+)
+researcher = Agent(
+    role="Expert Technology and Business Research Analyst",
+    goal="Find compelling, data-backed evidence to support a business argument.",
+    backstory="You are a meticulous analyst...",
+    llm=llm, verbose=True, tools=[search_tool], allow_delegation=False
+)
+writer = Agent(
+    role="Expert Business Ghostwriter for Technology Leaders",
+    goal="Draft a clear, concise, and authoritative article based on a strategic outline and research findings.",
+    backstory="You are a master wordsmith...",
+    llm=llm, verbose=True, allow_delegation=False
+)
+csuite_reviewer = Agent(
+    role="Chief Information Officer (CIO) Persona",
+    goal="Review and refine an article draft to ensure every sentence speaks to C-level concerns.",
+    backstory="You are a pragmatic CIO...",
+    llm=llm, verbose=True, allow_delegation=False
+)
+formatter = Agent(
+    role="LinkedIn Engagement Specialist",
+    goal="Format a finalized article for maximum readability and engagement on the LinkedIn platform.",
+    backstory="You are a social media expert...",
+    llm=llm, verbose=True, allow_delegation=False
+)
+
+# --- Task Definitions (No changes here) ---
+task_strategize = Task(
+    description="1. Analyze the provided topic: '{topic}' and core insight: '{insight}'.\n2. Generate 3-5 potential article titles and angles...\n3. Focus on outcomes like cost savings, revenue generation...\n4. Select the single best angle and title to proceed with.",
+    expected_output="A clear, compelling article title and a brief paragraph outlining the chosen strategic angle.",
+    agent=strategist
+)
+task_research = Task(
+    description="Using the article angle provided by the strategist, find 5-7 compelling data points...",
+    expected_output="A bulleted list of research findings, each with a corresponding source URL...",
+    agent=researcher, context=[task_strategize]
+)
+task_draft = Task(
+    description="Create a 900-word article draft based on the chosen angle and the research provided...",
+    expected_output="A well-written, coherent first draft of the article.",
+    agent=writer, context=[task_strategize, task_research]
+)
+task_review = Task(
+    description="Review the article draft from the perspective of a skeptical CIO...",
+    expected_output="A revised version of the article with all technical language translated into business value...",
+    agent=csuite_reviewer, context=[task_draft]
+)
+task_format = Task(
+    description="Format the final revised article for maximum impact on LinkedIn...",
+    expected_output="The final, fully formatted article text ready to be copy-pasted into LinkedIn.",
+    agent=formatter, context=[task_review], output_file="final_linkedin_article.md"
+)
+
+# --- Crew Definition ---
+article_crew = Crew(
+    agents=[strategist, researcher, writer, csuite_reviewer, formatter],
+    tasks=[task_strategize, task_research, task_draft, task_review, task_format],
+    process=Process.sequential,
+    verbose=True,
+    # --- FIX 2: Added rate limiting to prevent API errors on the free tier ---
+    max_rpm=15
+)
+
+# --- Execute the Workflow ---
+inputs = {
+    'topic': 'The business case for implementing a Data Mesh in a large financial institution.',
+    'insight': 'Most companies treat Data Mesh as a technology project, but it is actually an organizational and cultural shift that unlocks business value. The real ROI comes from empowering domain teams, not from the tech itself.'
+}
+result = article_crew.kickoff(inputs=inputs)
+
+print("\n\n########################")
+print("## Crew Execution Finished!")
+print("########################\n")
+print("Final article has been saved to 'final_linkedin_article.md'")
+print("Final Result:")
+print(result)

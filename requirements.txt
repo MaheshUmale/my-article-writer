@@ -1,0 +1,9 @@
+crewai
+crewai-tools
+python-dotenv
+langchain-groq
+langchain-openai
+#serper-api-key
+streamlit
+langchain-community
+pydantic
